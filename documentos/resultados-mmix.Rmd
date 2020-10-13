@@ -1,10 +1,16 @@
 ---
-title: "Modelos de marketing mix"
+title: "Modelos de marketing mix: datos agregados"
 output: html_notebook
 bibliography: 
  - "../referencias/referencias.bib"
+ - "../referencias/paquetes.bib"
 ---
 
+
+En este ejemplo veremos una introducción a la construcción, evaluación y
+uso de modelos de marketing mix, que se usan ocasionalmente para evaluar
+la efectividad del marketing mix, en particular gasto de publicidad a lo largo
+de varios canales (TV, búsqueda, display, espectaculares, etc.).
 
 ```{r}
 library(cmdstanr)
@@ -16,21 +22,200 @@ source("../R/simular_resumenes.R")
 
 ### Problema
 
+Cuando una empresa asigna recursos para hacer publicidad, 
+muchas veces no existen medidas directas de que tan efectiva fue esa publicidad. 
+Los modelos de marketing mix intentan atribuir efectos observados en las ventas
+a distintos canales de publicidad, de manera que podamos asignar cantidades monetarias
+(o unidades vendidas, conversiones, etc.) a al inversión en distintos canales.
+
+En su version más simple, tenemos varias entradas del marketing mix: gasto en distintos
+canales de publicidad, promociones, medidas de distribución, precios (que puede
+ser para una marca o una unidad SKU, o pueden ser para varias marcas incluyendo competidores),
+y una salida que mide el desempeño del mix, como pueden ser las ventas. Estos datos
+generalmente están disponibles a nivel semanal durante algunos años.
+
+Finalmente, quisiéramos hacer uso de estos modelos para diseñar planes de inversión
+que sean eficientes, y con alto retorno sobre inversión.
+
+En este caso vemos unos datos relativamente simples de ventas de queso
+a lo largo de varias tiendas. Los datos son de @rossi2012 y se pueden encontrar
+en el paquete @bayesm.
+ 
+
 ### Análisis conceptual
+
+En este caso queremos evaluar cuál es el efecto de poner productos en
+*displays* o exhibidores especiales en tiendas, lo cual tiene un costo. Tenemos los siguientes datos
+
+- Ventas por semana por agregado de tiendas (por ejemplo, tiendas Lucky en Los Angeles)
+- Precio de promedio de venta en cada semana por agregado de tiendas
+- % del total de volumen que estuvo en exhibición (a lo largo de la semana y de todas
+las tiendas particulares que constituyen cada agregado)
+
+- Las series de tiempo de ventas para cada tienda están influidas por varios
+efectos para los que tenemos covariables. 
+
+- Supondremos que precio y exhibición tienen un
+efecto en la semana donde están presentes, y supondremos que no interactúan. 
+
+- El efecto del precio lo consideraremos multiplicativo, como es usual en
+este tipo de problemas: por ejemplo, un incremento del
+5% tienen un efecto de -5%/2 = -2.5% en ventas.
+
+- ¿Cómo debe ser el efecto de producto en exhibición? Supongamos que el número
+de unidades de venta esperadas sin exhibición en una tienda y semana dadas 
+es igual a $N(i,t)$, y que cuando todas las unidades están en exhibición
+son $N(i, t)(1+ \beta)$. El indicador $\beta$ mide cuánto se incrementan las
+unidades vendidas cuando están todas en exhibición, y es el máximo
+efecto que puede tener la exhibición. Supondremos que cuando
+una proporción $p$ de las unidades están en exhibición, esperamos
+observar ventas de $N(i, t)(1 + \beta p)$.
+
+Supondremos en primer lugar que $beta$ es constante a lo largo de las tiendas.
+
+
+
 
 ### Espacio de observaciones
 
+No todas las tiendas registran el mismo número de semanas de ventas. Así que
+podemos usar índices, por ejemplo:
+
+- $$y_{[\mathrm{indice}(i, t)]}$$ son las ventas observadas de la tienda $i$ en 
+la semana $t$.
+
+Usamos una notación simplar para $disp$, la proporción del volumen de la tienda
+que está en exhibición y $precio$, el precio.
+
+```{bash}
+sed -n '/^data/,/\}/p' ../stan/modelo.stan
+```
+
 ### Estadísticas resumen
+
+- Elasticidad precio por tienda.
+- Valor alcanzado de incremental en valor debido a las exhibiciones, por tienda y a total.
+- Curvas de incremento % en ventas (unidades y valor) dependiendo del % de volumen en exhibición. Por tienda y a total.
+
 
 ### Desarrollo del modelo
 
+Como nos interesa trabajar con elasticidades precio, modelaremos el logaritmo
+de las ventas unitarias en términos del logaritmo de precio:
+
+$$\log(y_{i,t}) = \alpha_{i} + \beta_{i}\log(\mathrm{precio}) + \gamma_i \mathrm{disp}_{i,t} +   \epsilon_{i,t}$$
+donde $\epsilon$ mide variables no medidas. La razón de utilizar la variable
+de exhibiciones sin logartimo es que de esta forma el efecto de exhibiciones 
+es de la forma
+$$\frac{\delta y}{y} \approx \gamma \Delta\textrm{disp}$$
+y en cuanto al precio,
+$$\frac{\delta y}{y} \approx \beta \frac{\Delta p}{p}$$
+
+- Suponemos ventas base constante (no hay crecimiento de ventas no debido a otras variables,
+por ejemplo). Este es un supuesto que habrá que checar.
+- Supongemos que los errores $\epsilon$ son iid, lo cual también habrá que checar.
+- Para interpretar causalmente estos efectos y poder usar este modelo
+para diseñar estrategias, es neceario suponer que
+no existen otras covariables no incluídas en el modelo
+que afectan a ventas y precio o ventas y exhibiciones
+directamente. Esto puede pasar en muchos casos, por ejemplo, en épocas particulares
+del año(navidad: hay más ventas y más artículos con promoción, etc)
+
+Ahora tenemos que poner modelos para estas cantidades desconocidas. En primer lugar,
+usaremos el precio promedio, de forma que $\alpha$ se interpreta como el nivel
+esperado de ventas a precio promedio y sin exhibición. Tenemos que saber algo
+acerca de los niveles de venta generales de la tienda, pero podríamos comenzar con
+(son tiendas relativamente chicas), para las ventas semanales:
+
+$$\alpha_i \sim N^+(0,5)$$
+
+(la exponencial de 10 es alrededor de 22 mil unidades a la semana).
+
+Suponemos que la elasticidad precio es similar a lo largo de las tiendas, pero puede
+variar. Usarmos:
+
+$$\beta_i \sim N(\beta_0, \sigma_\beta)$$
+y como iniciales, ponemos $\beta_0 ~ N(-1.5, 0.5)$, es decir, esperamos una elasticidad
+precio media entre -2.5 y -0.5. Ponemos $\sigma_\beta \sim N^+(0, 0.15)$, lo que implica
+que consideramos que las elasiticidades precio pueden ser muy similares, pero también
+puede haber variabilidad hasta de $+/-0.3$ de tienda a tienda.
+
+Ahora continuamos con $\gamma_i$. Pondremos
+$$\gamma_i \sim N(\gamma_0, \sigma_\gamma)$$
+Recordamos que $\gamma_i$ es el efecto más grande (en incremento porcentual) que
+pueden tener las exhibiciones (si todo el volumen está en exhibición). Ponemos
+$\gamma_0 ~ N^+(0, 0.2)$ (más o menos un incremento máximo de 40% en promedio), y
+$\sigma_\gamma ~ N^+(0, 0.1)$.
+
+Finalmente, pondremos $\epsilon ~ N(0, \sigma)$, con $\sigma ~ N^+(0, 1)$, que
+es variación considerable (1/7 a 7 veces las ventas esperadas).
+
+
+Verificaremos simulando el ensemble bayesiano y calculando nuestras medidas resumen.
+
 ### Simular ensamble bayesiano
+
+Usaremos los datos de tiendas, precios y exhibición observadas (no las ventas)
+para simular ventas.
+
+```{r}
+datos <- read_csv("../datos/cheese.csv") %>% 
+  rename(tienda = RETAILER, venta_unidades = VOLUME, disp = DISP, precio = PRICE) %>% 
+  mutate(indice = row_number()) %>% 
+  group_by(tienda) %>% 
+  arrange(tienda, indice) %>% 
+  mutate(semana_id = row_number()) %>% 
+  ungroup() %>% 
+  mutate(tienda_id = as.numeric(as.factor(tienda))) %>% 
+  mutate(indice = row_number() %>% as.integer())
+lista_dat <- list("N" = nrow(datos), "m" = max(datos$tienda_id),
+                  "tienda_id"=datos$tienda_id, "semana_id"=datos$semana_id,
+                  "precio" = datos$precio, "acv_disp"=datos$disp)
+                  
+jsonlite::write_json(lista_dat, "../datos/datos_prueba.json")
+
+
+sim_datos <- jsonlite::read_json("../datos/datos_prueba.json", simplifyVector = TRUE)
+parametros <- jsonlite::read_json("../datos/datos_inicial.json", simplifyVector = TRUE)
+print(parametros)
+```
+
+
+```{r}
+sim_ensemble_datos <- c(sim_datos, parametros)
+ruta <- file.path("../stan/simular_ensemble_modelo.stan")
+modelo_inicial <- cmdstan_model(ruta)
+ensemble <- simular_ensemble(modelo_inicial, sim_ensemble_datos, 100)
+```
+
+Ahora podemos ver algunas simulaciones:
+
+```{r}
+num_sim <- 2
+y_sim <- ensemble$draws("y")[num_sim,1,] %>% as.numeric
+datos_sim <- datos %>% select(-venta_unidades)
+datos_sim$venta_unidades <- y_sim
+datos_sim %>% group_by(tienda, tienda_id) %>% 
+  summarise(media_ventas = mean(venta_unidades) %>% as.integer, 
+            maximo=max(venta_unidades) %>% as.integer)
+```
+
+```{r}
+ensemble$draws("alpha")[num_sim, 1, ] %>% as.numeric
+```
+
+
 
 ### Ajustar al ensemble simulado
 
 ### Calibración inferencial
 
 ### Ajuste a las observaciones
+
+Los datos son los siguientes:
+
+
+
 
 ### Verificación posterior dentro de muestra
 
