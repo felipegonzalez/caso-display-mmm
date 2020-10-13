@@ -1,0 +1,40 @@
+---
+title: "Modelos de marketing mix"
+output: html_notebook
+bibliography: 
+ - "../referencias/referencias.bib"
+---
+
+
+```{r}
+library(cmdstanr)
+library(posterior)
+library(tidyverse)
+library(patchwork)
+source("../R/simular_resumenes.R")
+```
+
+### Problema
+
+### Análisis conceptual
+
+### Espacio de observaciones
+
+### Estadísticas resumen
+
+### Desarrollo del modelo
+
+### Simular ensamble bayesiano
+
+### Ajustar al ensemble simulado
+
+### Calibración inferencial
+
+### Ajuste a las observaciones
+
+### Verificación posterior dentro de muestra
+
+### Siguientes pasos
+
+### Conclusiones
+
