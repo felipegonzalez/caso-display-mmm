@@ -1,5 +1,5 @@
-{ "beta_pars":[-1.5,0.5,0.15],
-  "gamma_pars":[0,0.20, 0.10],
-  "sigma_alpha":[3.0],
-  "sigma_par":[1.0]
+{ "beta_pars":[-1.5,0.5,0.25],
+  "gamma_pars":[0,0.20,0.05],
+  "alpha_pars":[8.0,1.5],
+  "sigma_par":[0.15]
 }

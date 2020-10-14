@@ -1,3 +1,40 @@
+resumir_precio <- function(ajuste, sim_ensemble_datos){
+  beta_sim_tbl <- ajuste$draws("beta") %>%
+    as_draws_df() %>%
+    as_tibble() %>%
+    select(-.chain, -.iteration, -.draw) %>%
+    ungroup() %>%
+    mutate(n_sim = row_number()) %>%
+    pivot_longer(cols = -n_sim, names_to = c("a", "tienda_id", "b"),
+                 values_to = "beta", names_sep = "[\\[\\]]") %>%
+    select(-a, -b)
+  #f <- c(0.10, 0.50, 0.90)
+  #beta_sim_tbl %>% group_by(tienda_id) %>%
+  #  summarise(cuantiles = quantile(beta, f), f = f) %>%
+  #  ungroup() %>%
+  #  pivot_wider(names_from = f, values_from = cuantiles)
+  beta_sim_tbl
+}
+
+contribucion_disp <- function(ajuste, ensemble_datos){
+  datos_tbl <- tibble(tienda_id = ensemble_datos$tienda_id,
+                      disp = ensemble_datos$acv_disp) %>%
+    group_by(tienda_id) %>%
+    summarise(disp_media = mean(disp))
+  retorno_tbl <- ajuste$draws(c("retorno_disp", "retorno_disp_pct",
+                                "incremental_disp", "gamma", "y_total")) %>%
+    as_draws_df %>%
+    as_tibble() %>%
+    select(-.chain, -.iteration, -.draw) %>%
+    mutate(n_sim = row_number()) %>%
+    pivot_longer(cols = -n_sim, names_to = c("variable", "tienda_id", "b"),
+                 values_to = "valor", names_sep = "[\\[\\]]") %>%
+    select(-b) %>%
+    mutate(tienda_id = as.integer(tienda_id)) %>%
+    left_join(datos_tbl)
+  retorno_tbl
+}
+
 simular_ensemble <- function(modelo, sim_datos, R = 1000){
   # simular
   ensemble_1 <- modelo$sample(

@@ -103,7 +103,7 @@ sed -n '/^data/,/\}/p' ../stan/modelo.stan
 Como nos interesa trabajar con elasticidades precio, modelaremos el logaritmo
 de las ventas unitarias en términos del logaritmo de precio:
 
-$$\log(y_{i,t}) = \alpha_{i} + \beta_{i}\log(\mathrm{precio}) + \gamma_i \mathrm{disp}_{i,t} +   \epsilon_{i,t}$$
+$$\log(y_{i,t}) = \alpha_{i} + \beta_{i}\log \left(\frac{\mathrm{precio}}{\mathrm{precio_{prom}}}\right ) + \gamma_i \mathrm{disp}_{i,t} +   \epsilon_{i,t}$$
 donde $\epsilon$ mide variables no medidas. La razón de utilizar la variable
 de exhibiciones sin logartimo es que de esta forma el efecto de exhibiciones 
 es de la forma
@@ -115,7 +115,7 @@ $$\frac{\delta y}{y} \approx \beta \frac{\Delta p}{p}$$
 por ejemplo). Este es un supuesto que habrá que checar.
 - Supongemos que los errores $\epsilon$ son iid, lo cual también habrá que checar.
 - Para interpretar causalmente estos efectos y poder usar este modelo
-para diseñar estrategias, es neceario suponer que
+para diseñar estrategias, es necesario suponer que
 no existen otras covariables no incluídas en el modelo
 que afectan a ventas y precio o ventas y exhibiciones
 directamente. Esto puede pasar en muchos casos, por ejemplo, en épocas particulares
@@ -125,30 +125,45 @@ Ahora tenemos que poner modelos para estas cantidades desconocidas. En primer lu
 usaremos el precio promedio, de forma que $\alpha$ se interpreta como el nivel
 esperado de ventas a precio promedio y sin exhibición. Tenemos que saber algo
 acerca de los niveles de venta generales de la tienda, pero podríamos comenzar con
-(son tiendas relativamente chicas), para las ventas semanales:
+(son tiendas relativamente chicas), para las ventas semanales.
 
-$$\alpha_i \sim N^+(0,5)$$
+Podemos investigar qué niveles generales de ventas tienen las ventas. Quizá nos
+informa que usualmente están entre 200 y 5000 unidades a la semana.
+Así que podríamos poner (tomando logaritmo de la media, y calculando )
 
-(la exponencial de 10 es alrededor de 22 mil unidades a la semana).
+$$\alpha_i \sim N(8, 1.5)$$
+En la media obtenemos unas 3000 unidades (exponencial de 8)
+
 
 Suponemos que la elasticidad precio es similar a lo largo de las tiendas, pero puede
 variar. Usarmos:
 
 $$\beta_i \sim N(\beta_0, \sigma_\beta)$$
 y como iniciales, ponemos $\beta_0 ~ N(-1.5, 0.5)$, es decir, esperamos una elasticidad
-precio media entre -2.5 y -0.5. Ponemos $\sigma_\beta \sim N^+(0, 0.15)$, lo que implica
-que consideramos que las elasiticidades precio pueden ser muy similares, pero también
-puede haber variabilidad hasta de $+/-0.3$ de tienda a tienda.
+precio media entre -2.5 y -0.5. Ponemos $\sigma_\beta \sim N^+(0, 0.25)$, lo que implica
+que consideramos que las elasticidades precio pueden ser muy similares, pero también
+puede haber variabilidad hasta de $+/-0.5$ de tienda a tienda.
 
 Ahora continuamos con $\gamma_i$. Pondremos
 $$\gamma_i \sim N(\gamma_0, \sigma_\gamma)$$
-Recordamos que $\gamma_i$ es el efecto más grande (en incremento porcentual) que
+Recordamos que $e^\gamma_i$ será el efecto multiplicativo más grande (en incremento porcentual) que
 pueden tener las exhibiciones (si todo el volumen está en exhibición). Ponemos
-$\gamma_0 ~ N^+(0, 0.2)$ (más o menos un incremento máximo de 40% en promedio), y
-$\sigma_\gamma ~ N^+(0, 0.1)$.
+$$\gamma_0 ~\sim N^+(0, 0.2)$$
+(más o menos un incremento máximo de 40% en promedio), y
+$$\sigma_\gamma \sim  ~ N^+(0, 0.05)$$.
 
-Finalmente, pondremos $\epsilon ~ N(0, \sigma)$, con $\sigma ~ N^+(0, 1)$, que
-es variación considerable (1/7 a 7 veces las ventas esperadas).
+Finalmente, pondremos $\epsilon ~ N(0, \sigma)$, con 
+
+$$\sigma \sim N^+(0, 0.15),$$ 
+que
+es variación considerable:
+
+```{r}
+abs(rnorm(2000,0,0.25)) %>% quantile() %>% round(3)
+```
+
+$\sigma=1$ corresponde a un error en logaritmo de +/-2 unidades, que es variación
+de 1/7 - 7 veces alrededor del valor esperado.
 
 
 Verificaremos simulando el ensemble bayesiano y calculando nuestras medidas resumen.
@@ -181,32 +196,141 @@ print(parametros)
 ```
 
 
-```{r}
+```{r, message=FALSE, include=FALSE}
 sim_ensemble_datos <- c(sim_datos, parametros)
 ruta <- file.path("../stan/simular_ensemble_modelo.stan")
 modelo_inicial <- cmdstan_model(ruta)
 ensemble <- simular_ensemble(modelo_inicial, sim_ensemble_datos, 100)
 ```
 
-Ahora podemos ver algunas simulaciones:
+Ahora podemos ver algunas simulaciones. En primer lugar, vemos cómo se 
+ven las ventas en el tiempo:
+
+
+
+
 
 ```{r}
-num_sim <- 2
+num_sim <- 17
 y_sim <- ensemble$draws("y")[num_sim,1,] %>% as.numeric
 datos_sim <- datos %>% select(-venta_unidades)
 datos_sim$venta_unidades <- y_sim
+ggplot(datos_sim, aes(x = semana_id, y = venta_unidades, group = tienda_id)) +
+  geom_line() 
+```
+Algunas simulaciones son extremas (para una tienda). Si vemos algunas tiendas al azar::
+
+```{r}
+set.seed(834)
+ggplot(datos_sim %>% filter(tienda_id %in% sample(1:88, 12)), 
+       aes(x = semana_id, y = venta_unidades, group = tienda_id)) +
+  geom_line() + facet_wrap(~ tienda_id, scales = "free_y")
+```
+Observamos variación considerable, aunque quizá con valores muy altos. Como son
+series de tiempo, estas replicaciones parecen ser muy poco suaves - quizá es necesario
+construir correlaciones entre los resiudales. Por el
+momento, estas simulaciones las aceptamos como factibles, e incluye a tiendas
+chicas y grandes.
+
+Ventas promedio y máximos:
+
+```{r}
 datos_sim %>% group_by(tienda, tienda_id) %>% 
   summarise(media_ventas = mean(venta_unidades) %>% as.integer, 
             maximo=max(venta_unidades) %>% as.integer)
 ```
 
+Las elasticidades son razonables, aunque quizá deberíamos considerar más variación 
+de tienda a tienda:
+
 ```{r}
-ensemble$draws("alpha")[num_sim, 1, ] %>% as.numeric
+elasticidad_tbl <- resumir_precio(ensemble, sim_ensemble_datos) 
+elasticidad_tbl %>% filter(n_sim==num_sim) %>% pull(beta) %>% quantile
+```
+
+```{r}
+ensemble$draws("gamma") %>% as_draws_df %>% 
+  as_tibble %>% filter(.draw == num_sim) %>% 
+  as.numeric %>% quantile()
 ```
 
 
 
+```{r}
+retorno_base_tbl <- contribucion_disp(ensemble, sim_ensemble_datos) %>% 
+  pivot_wider(names_from = variable, values_from = valor)
+retorno <- retorno_base_tbl %>% filter(n_sim == num_sim)
+```
+
+
+```{r}
+ggplot(retorno, aes(x = disp_media, y = retorno_disp_pct, colour = gamma)) + 
+  geom_point() 
+```
+
+Descomposición
+
+```{r}
+
+```
+
+
 ### Ajustar al ensemble simulado
+
+Ahora veremos si podemos ajustar el modelo al ensemble simulado
+
+```{r}
+num_iter <- 17
+ventas_sim <- ensemble$draws("y") %>% as_draws_df() %>% 
+  as_tibble() %>% 
+  filter(.draw == num_iter)  %>% 
+  select(-.iteration, -.chain, -.draw) %>% as.numeric()
+```
+
+
+```{r}
+ruta <- file.path("../stan/modelo.stan")
+modelo <- cmdstan_model(ruta)
+```
+
+
+```{r}
+datos_1 <- c(sim_ensemble_datos, list("y" = ventas_sim %>% as.numeric))
+ajuste <- modelo$sample(data = datos_1,
+                          seed = 2210,
+                          iter_sampling = 500, iter_warmup = 500,
+                          refresh = 100, parallel_chains = 4,
+                          show_messages = FALSE)
+ajuste
+```
+
+```{r}
+ajuste$cmdstan_diagnose()
+```
+
+Este ajuste no tuvo problemas. Examinemos las elasticidades
+
+```{r}
+ajuste$summary("beta") 
+```
+
+
+```{r}
+elasticidad <- ajuste$summary("beta") %>% select(variable, mean) %>% 
+  rename(media_beta = mean)
+gamma_disp <- ajuste$summary("gamma") %>% select(mean) %>% 
+  rename(media_gamma = mean)
+bind_cols(elasticidad, gamma_disp) %>% 
+  ggplot(aes(x=media_beta, y = media_gamma)) + geom_point()
+```
+Vemos que en general los displays parecen tener un efecto considerable. Algunas
+estimaciones de la elasticidad son positivas, lo que probablemente indica un 
+defecto en el modelo (variables adicionales o información inicial)
+
+```{r}
+ajuste$summary(c("sigma_beta", "sigma_gamma", "sigma"))
+```
+
 
 ### Calibración inferencial
 
@@ -214,6 +338,28 @@ ensemble$draws("alpha")[num_sim, 1, ] %>% as.numeric
 
 Los datos son los siguientes:
 
+```{r}
+datos_ventas <- c(sim_ensemble_datos, list("y" = datos$venta_unidades))
+ajuste <- modelo$sample(data = datos_ventas,
+                          seed = 2210,
+                          iter_sampling = 500, iter_warmup = 500,
+                          refresh = 100, parallel_chains = 4,
+                          show_messages = FALSE)
+ajuste
+```
+```{r}
+ajuste$cmdstan_diagnose()
+```
+
+El modelo corrió sin problemas numéricos
+
+```{r}
+ajuste$summary(c("beta")) %>% pull(mean) %>% qplot()
+```
+
+```{r}
+ajuste$summary(c("gamma")) %>% pull(mean) %>% qplot()
+```
 
 
 
