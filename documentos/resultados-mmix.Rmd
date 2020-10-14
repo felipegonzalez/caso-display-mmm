@@ -361,6 +361,9 @@ ajuste$summary(c("beta")) %>% pull(mean) %>% qplot()
 ajuste$summary(c("gamma")) %>% pull(mean) %>% qplot()
 ```
 
+```{r}
+ajuste$summary(c("sigma", "sigma_beta", "sigma_gamma"))
+```
 
 
 ### Verificación posterior dentro de muestra
